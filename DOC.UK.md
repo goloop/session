@@ -44,16 +44,19 @@ m := session.New(secret, opts...)
 
 | Опція | Ефект | Дефолт |
 |-------|-------|--------|
-| `WithName(s)` | ім'я cookie | "session" |
+| `WithName(s)` | ім'я cookie (панікує на невалідному токені) | "session" |
 | `WithDomain(s)` | Domain cookie | "" |
 | `WithPath(s)` | Path cookie | "/" |
 | `WithSecure(b)` | атрибут Secure (лише HTTPS) | true |
 | `WithSameSite(m)` | атрибут SameSite | Lax |
-| `WithTTL(d)` | час життя сесії | 24h |
+| `WithTTL(d)` | час життя сесії (ковзний) | 24h |
+| `WithAbsoluteTTL(d)` | жорстка стеля життя від створення | вимк. |
 | `WithKey(k)` | додатковий ключ перевірки (ротація) | - |
 | `WithClock(fn)` | джерело часу (тести) | time.Now |
 
-`HttpOnly` встановлюється завжди.
+`HttpOnly` встановлюється завжди. `WithTTL` зсувається вперед на кожному `Save`,
+тож активна сесія може жити вічно; `WithAbsoluteTTL` відхиляє сесію, старшу за
+час створення плюс `d`, незалежно від активності.
 
 ## Load, Save, Destroy
 

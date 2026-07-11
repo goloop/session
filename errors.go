@@ -16,4 +16,7 @@ var (
 	// ErrTooLarge is returned when an encoded session exceeds the cookie size
 	// limit (about 4 KB).
 	ErrTooLarge = errors.New("session: encoded session too large for a cookie")
+
+	// ErrNilSession is returned by Save when given a nil session.
+	ErrNilSession = errors.New("session: nil session")
 )

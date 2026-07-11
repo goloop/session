@@ -44,16 +44,19 @@ m := session.New(secret, opts...)
 
 | Option | Effect | Default |
 |--------|--------|---------|
-| `WithName(s)` | cookie name | "session" |
+| `WithName(s)` | cookie name (panics on an invalid token) | "session" |
 | `WithDomain(s)` | cookie Domain | "" |
 | `WithPath(s)` | cookie Path | "/" |
 | `WithSecure(b)` | Secure attribute (HTTPS only) | true |
 | `WithSameSite(m)` | SameSite attribute | Lax |
-| `WithTTL(d)` | session lifetime | 24h |
+| `WithTTL(d)` | session lifetime (sliding) | 24h |
+| `WithAbsoluteTTL(d)` | hard lifetime cap from creation | off |
 | `WithKey(k)` | extra verification key (rotation) | - |
 | `WithClock(fn)` | time source (testing) | time.Now |
 
-`HttpOnly` is always set.
+`HttpOnly` is always set. `WithTTL` slides forward on every `Save`, so an active
+session can live indefinitely; `WithAbsoluteTTL` rejects a session older than
+its creation time plus `d` regardless of activity.
 
 ## Load, Save, Destroy
 

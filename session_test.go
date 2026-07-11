@@ -227,3 +227,91 @@ func TestExpiryBoundaryExclusive(t *testing.T) {
 		t.Fatalf("at expiry = %v, want ErrExpired", err)
 	}
 }
+
+// Save must reject a nil session instead of panicking.
+func TestSaveNilSession(t *testing.T) {
+	m := New(secret)
+	rec := httptest.NewRecorder()
+	if err := m.Save(rec, nil); err != ErrNilSession {
+		t.Fatalf("Save(nil) = %v, want ErrNilSession", err)
+	}
+}
+
+// WithName must panic on a name that is not a valid cookie token.
+func TestWithNameRejectsInvalid(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("WithName with an invalid name did not panic")
+		}
+	}()
+	New(secret, WithName("bad name;"))
+}
+
+// A valid custom name is accepted.
+func TestWithNameValid(t *testing.T) {
+	m := New(secret, WithName("sid"))
+	if m.cookie.name != "sid" {
+		t.Fatalf("name = %q", m.cookie.name)
+	}
+}
+
+// WithAbsoluteTTL rejects a session older than CreatedAt+d even when the
+// sliding expiry was refreshed recently.
+func TestAbsoluteTTL(t *testing.T) {
+	created := time.Now().Add(-2 * time.Hour)
+	// Sign a session created two hours ago but still within the sliding TTL.
+	signer := New(secret, WithTTL(time.Hour),
+		WithClock(func() time.Time { return created }))
+	s := &Session{Subject: "u"}
+	rec := httptest.NewRecorder()
+	if err := signer.Save(rec, s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	// Re-sign with a refreshed expiry (as a later Save would), keeping the old
+	// CreatedAt, so only the absolute cap can reject it.
+	refresher := New(secret, WithTTL(time.Hour),
+		WithClock(func() time.Time { return time.Now() }))
+	rec2 := httptest.NewRecorder()
+	if err := refresher.Save(rec2, s); err != nil {
+		t.Fatalf("resave: %v", err)
+	}
+
+	m := New(secret, WithTTL(time.Hour), WithAbsoluteTTL(time.Hour))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, c := range rec2.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	if _, err := m.Load(req); err != ErrExpired {
+		t.Fatalf("absolute TTL: got %v, want ErrExpired", err)
+	}
+
+	// Without the absolute cap the same cookie still loads.
+	m2 := New(secret, WithTTL(time.Hour))
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, c := range rec2.Result().Cookies() {
+		req2.AddCookie(c)
+	}
+	if _, err := m2.Load(req2); err != nil {
+		t.Fatalf("without absolute cap: %v", err)
+	}
+}
+
+// Verification still succeeds through a rotated key after removing the early
+// return from anyKeyVerifies.
+func TestRotationStillVerifies(t *testing.T) {
+	oldKey := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	signer := New(oldKey, WithTTL(time.Hour))
+	rec := httptest.NewRecorder()
+	if err := signer.Save(rec, &Session{Subject: "u"}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	verifier := New(secret, WithKey(oldKey), WithTTL(time.Hour))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, c := range rec.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	got, err := verifier.Load(req)
+	if err != nil || got.Subject != "u" {
+		t.Fatalf("rotation verify: %v, %+v", err, got)
+	}
+}

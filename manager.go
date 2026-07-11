@@ -15,10 +15,11 @@ const minKeyLen = 32
 // Manager signs, reads and writes session cookies. The MVP is cookie-only: the
 // whole session lives in a signed cookie. It is safe for concurrent use.
 type Manager struct {
-	keys   [][]byte // first signs, all verify (rotation)
-	cookie cookieConfig
-	ttl    time.Duration
-	now    func() time.Time
+	keys        [][]byte // first signs, all verify (rotation)
+	cookie      cookieConfig
+	ttl         time.Duration
+	absoluteTTL time.Duration // 0 disables the absolute cap
+	now         func() time.Time
 }
 
 // New creates a Manager with the given signing secret and options. The Secure
@@ -68,8 +69,16 @@ func (m *Manager) Load(r *http.Request) (*Session, error) {
 	if err := json.Unmarshal(payload, &s); err != nil {
 		return nil, ErrInvalid
 	}
-	if !s.ExpiresAt.IsZero() && !m.now().Before(s.ExpiresAt) {
+	now := m.now()
+	if !s.ExpiresAt.IsZero() && !now.Before(s.ExpiresAt) {
 		// Expiry is exclusive: a cookie is invalid at ExpiresAt and after.
+		return nil, ErrExpired
+	}
+	// Enforce the absolute lifetime cap: a session older than CreatedAt plus
+	// the absolute TTL is expired regardless of how recently it was refreshed,
+	// so a continually active session cannot live forever.
+	if m.absoluteTTL > 0 && !s.CreatedAt.IsZero() &&
+		!now.Before(s.CreatedAt.Add(m.absoluteTTL)) {
 		return nil, ErrExpired
 	}
 	return &s, nil
@@ -93,6 +102,9 @@ func (m *Manager) LoadOrNew(r *http.Request) *Session {
 // Save writes the session as a signed cookie. It assigns an ID and timestamps
 // when missing and refreshes the expiry to now+TTL.
 func (m *Manager) Save(w http.ResponseWriter, s *Session) error {
+	if s == nil {
+		return ErrNilSession
+	}
 	now := m.now()
 	if s.ID == "" {
 		id, err := newID()
@@ -111,9 +123,13 @@ func (m *Manager) Save(w http.ResponseWriter, s *Session) error {
 		return err
 	}
 	value := m.sign(payload)
-	// Count the whole Set-Cookie budget: value, name and the attributes that
-	// take space on the wire (Path and Domain), not just value+name.
-	if len(value)+len(m.cookie.name)+len(m.cookie.path)+len(m.cookie.domain) > maxCookieSize {
+	// Count the whole Set-Cookie budget: value, name, the attributes that take
+	// space on the wire (Path and Domain) and a fixed allowance for the rest
+	// (Expires, Max-Age, Secure, HttpOnly, SameSite and their separators), so a
+	// cookie that passes here also fits under the browser limit.
+	budget := len(value) + len(m.cookie.name) +
+		len(m.cookie.path) + len(m.cookie.domain) + cookieAttrOverhead
+	if budget > maxCookieSize {
 		return ErrTooLarge
 	}
 

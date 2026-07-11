@@ -51,15 +51,17 @@ func mac(key []byte, signingInput string) []byte {
 
 // anyKeyVerifies reports whether the signature matches under any key, using a
 // constant-time comparison. This supports key rotation: the first key signs,
-// any key verifies.
+// any key verifies. It checks every key without an early return, so the time
+// taken does not reveal which key (primary or a rotated one) matched.
 func anyKeyVerifies(keys [][]byte, signingInput string, sig []byte) bool {
+	matched := false
 	for _, k := range keys {
 		if len(k) == 0 {
 			continue
 		}
 		if hmac.Equal(mac(k, signingInput), sig) {
-			return true
+			matched = true
 		}
 	}
-	return false
+	return matched
 }

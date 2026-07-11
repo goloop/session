@@ -41,6 +41,21 @@
 // and any configured key (WithKey) verifies, so you can roll keys without
 // invalidating live sessions.
 //
+// The payload is SIGNED, NOT ENCRYPTED. Subject and every value are stored as
+// base64(JSON): the client cannot forge them, but can read them. Do not put
+// secrets in a session. Encrypted payloads are planned (WithEncryption).
+//
+// Logout is stateless: Destroy clears the cookie in this response, but a copy
+// the client already captured stays valid until its ExpiresAt, because there is
+// no server-side store to revoke it. Keep the TTL short, consider
+// WithAbsoluteTTL for a hard lifetime cap, and for immediate revocation pair
+// this with a server-side denylist of session IDs.
+//
+// A loaded session is not proof of authentication. Middleware and LoadOrNew
+// return a fresh empty session when the cookie is missing or invalid, so a
+// successful From does not mean the request is authenticated: check Subject (or
+// your own flag) before granting access, or a protected route can fail open.
+//
 // # Scope
 //
 // The MVP does not include a server-side store, encrypted payloads or CSRF;
