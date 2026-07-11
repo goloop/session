@@ -187,3 +187,43 @@ func TestTooLarge(t *testing.T) {
 		t.Fatalf("expected ErrTooLarge, got %v", err)
 	}
 }
+
+func TestLoadOrNew(t *testing.T) {
+	m := New(secret)
+	// No cookie: a fresh, usable session.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	s := m.LoadOrNew(req)
+	if s == nil {
+		t.Fatal("LoadOrNew returned nil")
+	}
+	s.Set("k", "v") // must not panic on the lazily-initialised map
+	rec := httptest.NewRecorder()
+	if err := m.Save(rec, s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	// Round-trip: the saved cookie loads back.
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.Header.Set("Cookie", rec.Result().Cookies()[0].String())
+	got := m.LoadOrNew(req2)
+	if got.Get("k") != "v" {
+		t.Fatalf("round-trip lost value: %q", got.Get("k"))
+	}
+}
+
+func TestExpiryBoundaryExclusive(t *testing.T) {
+	exp := time.Now().Add(time.Hour)
+	m := New(secret, WithClock(func() time.Time { return exp.Add(-time.Hour) }))
+	rec := httptest.NewRecorder()
+	s := &Session{}
+	if err := m.Save(rec, s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cookie := rec.Result().Cookies()[0]
+	// Advance the clock to exactly the cookie's expiry: must be rejected.
+	m2 := New(secret, WithClock(func() time.Time { return s.ExpiresAt }))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Cookie", cookie.String())
+	if _, err := m2.Load(req); err != ErrExpired {
+		t.Fatalf("at expiry = %v, want ErrExpired", err)
+	}
+}

@@ -58,14 +58,23 @@ m := session.New(secret, opts...)
 ## Load, Save, Destroy
 
 ```go
-s, err := m.Load(r)   // ErrNoSession, ErrInvalid або ErrExpired при невдачі
-err = m.Save(w, s)    // призначає ID/час, оновлює expiry, ставить cookie
+s := m.LoadOrNew(r)   // наявна сесія або свіжа при будь-якій невдачі
+err := m.Save(w, s)   // призначає ID/час, оновлює expiry, ставить cookie
 m.Destroy(w)          // очищає cookie
 ```
 
-`Save` призначає випадковий `ID` і `CreatedAt`, якщо їх немає, ставить
-`ExpiresAt` = now+TTL і повертає `ErrTooLarge`, якщо закодована cookie перевищить
-~4 КБ ліміт браузера.
+`Load` повертає `ErrNoSession`, `ErrInvalid` або `ErrExpired` при невдачі;
+`LoadOrNew` зводить це до свіжої порожньої сесії - дискаверабельний спосіб
+почати сесію в хендлері без `Middleware` (напр. login-ендпоінт). `Save`
+призначає випадковий `ID` і `CreatedAt`, якщо їх немає, ставить `ExpiresAt` =
+now+TTL і повертає `ErrTooLarge`, якщо закодована cookie з іменем та атрибутами
+перевищить ~4 КБ ліміт браузера. Expiry виключний: cookie недійсна в момент
+`ExpiresAt` і пізніше.
+
+`Destroy` очищає cookie у відповіді, але **stateless підписану cookie не можна
+відкликати на сервері**: копія, яку клієнт уже має, лишається дійсною до
+`ExpiresAt`. Тримайте TTL коротким; для жорсткого відкликання додайте
+серверний denylist ID сесій.
 
 ## Middleware
 

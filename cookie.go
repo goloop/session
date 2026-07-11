@@ -75,12 +75,17 @@ func WithTTL(d time.Duration) Option {
 func WithKey(key []byte) Option {
 	return func(m *Manager) {
 		if len(key) > 0 {
-			m.keys = append(m.keys, key)
+			// Copy so the Manager never shares a slice with the caller.
+			m.keys = append(m.keys, append([]byte(nil), key...))
 		}
 	}
 }
 
-// WithClock overrides the time source (for testing).
+// WithClock overrides the time source (for testing). A nil function is ignored.
 func WithClock(now func() time.Time) Option {
-	return func(m *Manager) { m.now = now }
+	return func(m *Manager) {
+		if now != nil {
+			m.now = now
+		}
+	}
 }

@@ -18,13 +18,14 @@
 //
 // # Reading and writing
 //
-//	s, err := m.Load(r)          // verify and decode the cookie
+//	s := m.LoadOrNew(r)          // existing session, or a fresh one
 //	s.Set("theme", "dark")
-//	err = m.Save(w, s)           // sign and set the cookie
+//	err := m.Save(w, s)          // sign and set the cookie
 //	m.Destroy(w)                 // clear the cookie on logout
 //
-// With the middleware, handlers read the session from the context and persist
-// changes explicitly:
+// Load returns ErrNoSession when there is no cookie; LoadOrNew handles that for
+// the common "start a session in this handler" case. With the middleware,
+// handlers read the session from the context and persist changes explicitly:
 //
 //	http.Handle("/", m.Middleware(handler))
 //	// inside handler:

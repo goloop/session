@@ -27,7 +27,9 @@ type Manager struct {
 // bytes: a weak key is a configuration error that must fail at startup.
 func New(secret []byte, opts ...Option) *Manager {
 	m := &Manager{
-		keys: [][]byte{secret},
+		// Copy the key so a later mutation of the caller's slice cannot change
+		// signatures, keeping the Manager safe for concurrent use.
+		keys: [][]byte{append([]byte(nil), secret...)},
 		cookie: cookieConfig{
 			name:     defaultName,
 			path:     defaultPath,
@@ -66,10 +68,26 @@ func (m *Manager) Load(r *http.Request) (*Session, error) {
 	if err := json.Unmarshal(payload, &s); err != nil {
 		return nil, ErrInvalid
 	}
-	if !s.ExpiresAt.IsZero() && m.now().After(s.ExpiresAt) {
+	if !s.ExpiresAt.IsZero() && !m.now().Before(s.ExpiresAt) {
+		// Expiry is exclusive: a cookie is invalid at ExpiresAt and after.
 		return nil, ErrExpired
 	}
 	return &s, nil
+}
+
+// LoadOrNew reads the session cookie, or returns a fresh empty session when
+// there is none or it is invalid. It is the discoverable way to start a session
+// in a handler that does not use Middleware - for example a login endpoint that
+// sets the cookie:
+//
+//	s := m.LoadOrNew(r)
+//	s.Subject = userID
+//	m.Save(w, s)
+func (m *Manager) LoadOrNew(r *http.Request) *Session {
+	if s, err := m.Load(r); err == nil {
+		return s
+	}
+	return &Session{}
 }
 
 // Save writes the session as a signed cookie. It assigns an ID and timestamps
@@ -93,7 +111,9 @@ func (m *Manager) Save(w http.ResponseWriter, s *Session) error {
 		return err
 	}
 	value := m.sign(payload)
-	if len(value)+len(m.cookie.name) > maxCookieSize {
+	// Count the whole Set-Cookie budget: value, name and the attributes that
+	// take space on the wire (Path and Domain), not just value+name.
+	if len(value)+len(m.cookie.name)+len(m.cookie.path)+len(m.cookie.domain) > maxCookieSize {
 		return ErrTooLarge
 	}
 
@@ -111,7 +131,10 @@ func (m *Manager) Save(w http.ResponseWriter, s *Session) error {
 	return nil
 }
 
-// Destroy clears the session cookie.
+// Destroy clears the session cookie in the response. Because the session is a
+// stateless signed cookie, Destroy cannot invalidate a copy the client already
+// holds: a captured cookie stays valid until its ExpiresAt. Keep the TTL short,
+// and for hard revocation pair this with a server-side denylist of session IDs.
 func (m *Manager) Destroy(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookie.name,

@@ -25,10 +25,10 @@ m := session.New(secret,
 	session.WithTTL(24*time.Hour),
 )
 
-// Read, mutate, persist.
-s, err := m.Load(r)
+// Read (or start), mutate, persist.
+s := m.LoadOrNew(r)
 s.Set("theme", "dark")
-err = m.Save(w, s)
+err := m.Save(w, s)
 
 // Log out.
 m.Destroy(w)

@@ -58,14 +58,23 @@ m := session.New(secret, opts...)
 ## Load, Save, Destroy
 
 ```go
-s, err := m.Load(r)   // ErrNoSession, ErrInvalid or ErrExpired on failure
-err = m.Save(w, s)    // assigns ID/timestamps, refreshes expiry, sets cookie
+s := m.LoadOrNew(r)   // existing session, or a fresh one on any failure
+err := m.Save(w, s)   // assigns ID/timestamps, refreshes expiry, sets cookie
 m.Destroy(w)          // clears the cookie
 ```
 
-`Save` assigns a random `ID` and `CreatedAt` when missing, sets `ExpiresAt` to
-now+TTL, and returns `ErrTooLarge` if the encoded cookie would exceed the ~4 KB
-browser limit.
+`Load` returns `ErrNoSession`, `ErrInvalid` or `ErrExpired` on failure;
+`LoadOrNew` collapses those to a fresh empty session, which is the discoverable
+way to start a session in a handler that does not use `Middleware` (a login
+endpoint, for example). `Save` assigns a random `ID` and `CreatedAt` when
+missing, sets `ExpiresAt` to now+TTL, and returns `ErrTooLarge` if the encoded
+cookie plus its name and attributes would exceed the ~4 KB browser limit.
+Expiry is exclusive: a cookie is invalid at `ExpiresAt` and after.
+
+`Destroy` clears the cookie in the response, but a **stateless signed cookie
+cannot be revoked server-side**: a copy the client already holds stays valid
+until `ExpiresAt`. Keep the TTL short; for hard revocation add a server-side
+denylist of session IDs.
 
 ## Middleware
 
